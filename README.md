@@ -1,7 +1,6 @@
-# WebSetup
+# WSL - Web Server Launcher
 
-WebSetup is a utility script to automate web server configuration in your
-development machine.
+Wsl is a utility script to launch web server anywhere on developer machine.
 
 
 ## Table of Content
@@ -56,7 +55,7 @@ In writing.
 
 ## Versioning
 
-WebSetup is maintained under [the Semantic Versioning guidelines]
+Wsl is maintained under [the Semantic Versioning guidelines]
 (http://semver.org/). Sometimes we screw up, but we'll adhere to those
 rules whenever possible.
 
