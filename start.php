@@ -66,12 +66,12 @@ abstract class Launcher
             die('Command is required.');
         }
         $output = trim(shell_exec($command));
-        if ($verbose) {
-            echo $command . PHP_EOL;
-            if ($output) {
-                echo $output . PHP_EOL;
-            }
-        }
+        // if ($verbose) {
+        //     echo $command . PHP_EOL;
+        //     if ($output) {
+        //         echo $output . PHP_EOL;
+        //     }
+        // }
         return $output;
     }
 
@@ -80,13 +80,13 @@ abstract class Launcher
         if (!$command) {
             die('Command is required.');
         }
-        $output = trim(shell_exec($command . ' > /dev/null & /bin/echo $!'));
-        if ($verbose) {
-            echo $command . PHP_EOL;
-            if ($output) {
-                echo $output . PHP_EOL;
-            }
-        }
+        // $output = trim(shell_exec($command . ' > /dev/null & /bin/echo $!'));
+        // if ($verbose) {
+        //     echo $command . PHP_EOL;
+        //     if ($output) {
+        //         echo $output . PHP_EOL;
+        //     }
+        // }
         return $output;
     }
 
@@ -341,10 +341,12 @@ class NginxFpmLauncher extends Launcher
     }
 }
 
+// Use the specified PHP version
+// putenv('PATH=/usr/local/Cellar/php53/5.3.28/bin:/usr/local/Cellar/php53/5.3.28/sbin:' . getenv('PATH'));
 
 // Create launcher
-$launcher = new NginxPhpLauncher();
-$launcher->set('document_root', realpath(__DIR__ . '/public'));
+$launcher = new ApacheFpmLauncher();
+$launcher->set('document_root', realpath(__DIR__ . '/../public_html'));
 
 // Check whether this file is executed or included
 $includes = get_included_files();

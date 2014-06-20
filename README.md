@@ -1,6 +1,6 @@
-# WSL - Web Server Launcher
+# Wesel - Web Server Launcher
 
-Wsl is a utility script to launch web server anywhere on developer machine.
+Wesel is a utility script to launch web server anywhere on developer machine.
 
 
 ## Table of Content
@@ -18,15 +18,15 @@ Wsl is a utility script to launch web server anywhere on developer machine.
 
 1. Edit start.php and set document_root at the bottom of the file to your
     web server documents directory.
-    
+
     // Create launcher
     $launcher = new NginxPhpLauncher();
 
     // Set to your web server documents directory
     $launcher->set('document_root', realpath(__DIR__ . '/public'));
-    
+
 2. Open terminal and execute start.php.
-    
+
     #./start.php
 
 3. Open web browser and go to localhost:8080 to see if it works.
@@ -55,7 +55,7 @@ In writing.
 
 ## Versioning
 
-Wsl is maintained under [the Semantic Versioning guidelines]
+Wesel is maintained under [the Semantic Versioning guidelines]
 (http://semver.org/). Sometimes we screw up, but we'll adhere to those
 rules whenever possible.
 
