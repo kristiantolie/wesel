@@ -5,7 +5,9 @@ abstract class Launcher
 {
     protected $variables = array();
 
-    function get($variable)
+    public $debug = false;
+
+    public function get($variable)
     {
         if (!$variable) {
             die('Variable is required.');
@@ -16,7 +18,7 @@ abstract class Launcher
         return false;
     }
 
-    function set($variable, $value)
+    public function set($variable, $value)
     {
         if (!$variable) {
             die('Variable is required.');
@@ -24,17 +26,17 @@ abstract class Launcher
         $this->variables[$variable] = $value;
     }
 
-    function __get($variable)
+    public function __get($variable)
     {
         return $this->get($variable);
     }
 
-    function __set($variable, $value)
+    public function __set($variable, $value)
     {
         $this->set($variable, $value);
     }
 
-    function save($filename, $content)
+    public function save($filename, $content)
     {
         if (!$filename) {
             die('Filename is required.');
@@ -42,7 +44,7 @@ abstract class Launcher
         file_put_contents($filename, $content);
     }
 
-    function parse($filename)
+    public function parse($filename)
     {
         if (!$filename) {
             die('Filename is required.');
@@ -55,42 +57,38 @@ abstract class Launcher
         return $result;
     }
 
-    function replace($matches)
+    private function replace($matches)
     {
         return $this->get($matches[1]);
     }
 
-    function execute($command, $verbose = false)
+    public function execute($command, $verbose = false)
     {
         if (!$command) {
             die('Command is required.');
         }
         $output = trim(shell_exec($command));
-        // if ($verbose) {
-        //     echo $command . PHP_EOL;
-        //     if ($output) {
-        //         echo $output . PHP_EOL;
-        //     }
-        // }
+        if ($this->debug && $verbose) {
+            echo $command . PHP_EOL;
+            if ($output) {
+                echo $output . PHP_EOL;
+            }
+        }
         return $output;
     }
 
-    function invoke($command, $verbose = false)
+    public function invoke($command, $verbose = false)
     {
         if (!$command) {
             die('Command is required.');
         }
-        // $output = trim(shell_exec($command . ' > /dev/null & /bin/echo $!'));
-        // if ($verbose) {
-        //     echo $command . PHP_EOL;
-        //     if ($output) {
-        //         echo $output . PHP_EOL;
-        //     }
-        // }
-        return $output;
+        shell_exec($command . ' > /dev/null &');
+        if ($this->debug && $verbose) {
+            echo $command . PHP_EOL;
+        }
     }
 
-    function isRunning($process)
+    public function isRunning($process)
     {
         if (!$process) {
             die('Process is required.');
@@ -99,7 +97,7 @@ abstract class Launcher
         return !empty($output);
     }
 
-    function mkdirs($parent, $dirs = array())
+    public function mkdirs($parent, $dirs = array())
     {
         if (!$parent) {
             die('Parent is required.');
@@ -116,9 +114,9 @@ abstract class Launcher
 }
 
 
-class ApachePhpLauncher extends Launcher
+class ApacheLauncher extends Launcher
 {
-    function __construct()
+    public function __construct()
     {
         $this->variables = array(
             'current_dir'   => realpath(__DIR__),
@@ -128,7 +126,47 @@ class ApachePhpLauncher extends Launcher
         );
     }
 
-    function start()
+    public function start()
+    {
+        // Create server directories
+        $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
+
+        // Parse config file and save to configuration directory
+        $content = $this->parse(__DIR__ . '/httpd.conf');
+        $this->save(__DIR__ . '/conf/httpd.conf', $content);
+
+        // Run apache
+        if (!file_exists(__DIR__ . '/run/httpd.pid')) {
+            echo 'Starting web server...' . PHP_EOL;
+            $this->execute('apachectl -f ' . __DIR__ . '/conf/httpd.conf', true);
+            echo 'Web server has started.' . PHP_EOL;
+        }
+    }
+
+    public function stop()
+    {
+        // Stop apache
+        if (file_exists(__DIR__ . '/run/httpd.pid')) {
+            echo 'Stopping web server...' . PHP_EOL;
+            $this->execute('apachectl -f ' . __DIR__ . '/conf/httpd.conf -k graceful-stop', true);
+            echo 'Web server has stopped.' . PHP_EOL;
+        }
+    }
+}
+
+class ApachePhpLauncher extends Launcher
+{
+    public function __construct()
+    {
+        $this->variables = array(
+            'current_dir'   => realpath(__DIR__),
+            'document_root' => realpath(__DIR__),
+            'library_dir'   => '/usr/libexec/apache2',
+            'config_dir'    => '/private/etc/apache2',
+        );
+    }
+
+    public function start()
     {
         // Create server directories
         $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
@@ -152,7 +190,7 @@ class ApachePhpLauncher extends Launcher
         }
     }
 
-    function stop()
+    public function stop()
     {
         // Stop apache
         if (file_exists(__DIR__ . '/run/httpd.pid')) {
@@ -173,7 +211,7 @@ class ApachePhpLauncher extends Launcher
 
 class ApacheFpmLauncher extends Launcher
 {
-    function __construct()
+    public function __construct()
     {
         $this->variables = array(
             'current_dir'   => realpath(__DIR__),
@@ -183,7 +221,7 @@ class ApacheFpmLauncher extends Launcher
         );
     }
 
-    function start()
+    public function start()
     {
         // Create server directories
         $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
@@ -211,7 +249,7 @@ class ApacheFpmLauncher extends Launcher
         }
     }
 
-    function stop()
+    public function stop()
     {
         // Stop apache
         if (file_exists(__DIR__ . '/run/httpd.pid')) {
@@ -230,9 +268,9 @@ class ApacheFpmLauncher extends Launcher
 }
 
 
-class NginxPhpLauncher extends Launcher
+class NginxLauncher extends Launcher
 {
-    function __construct()
+    public function __construct()
     {
         $this->variables = array(
             'current_dir'   => realpath(__DIR__),
@@ -241,7 +279,46 @@ class NginxPhpLauncher extends Launcher
         );
     }
 
-    function start()
+    public function start()
+    {
+        // Create server directories
+        $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
+
+        // Parse config file and save to configuration directory
+        $content = $this->parse(__DIR__ . '/nginx.conf');
+        $this->save(__DIR__ . '/conf/nginx.conf', $content);
+
+        // Run nginx
+        if (!file_exists(__DIR__ . '/run/nginx.pid')) {
+            echo 'Starting web server...' . PHP_EOL;
+            $this->execute('nginx -p ' . __DIR__ . ' -c ' . __DIR__ . '/conf/nginx.conf', true);
+            echo 'Web server has started.' . PHP_EOL;
+        }
+    }
+
+    public function stop()
+    {
+        // Stop nginx
+        if (file_exists(__DIR__ . '/run/nginx.pid')) {
+            echo 'Stopping web server...' . PHP_EOL;
+            $this->execute('nginx -p ' . __DIR__ . ' -c ' . __DIR__ . '/conf/nginx.conf -s quit', true);
+            echo 'Web server has stopped.' . PHP_EOL;
+        }
+    }
+}
+
+class NginxPhpLauncher extends Launcher
+{
+    public function __construct()
+    {
+        $this->variables = array(
+            'current_dir'   => realpath(__DIR__),
+            'document_root' => realpath(__DIR__),
+            'config_dir'   => '/usr/local/etc/nginx',
+        );
+    }
+
+    public function start()
     {
         // Create server directories
         $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
@@ -265,7 +342,7 @@ class NginxPhpLauncher extends Launcher
         }
     }
 
-    function stop()
+    public function stop()
     {
         // Stop nginx
         if (file_exists(__DIR__ . '/run/nginx.pid')) {
@@ -286,7 +363,7 @@ class NginxPhpLauncher extends Launcher
 
 class NginxFpmLauncher extends Launcher
 {
-    function __construct()
+    public function __construct()
     {
         $this->variables = array(
             'current_dir'   => realpath(__DIR__),
@@ -295,7 +372,7 @@ class NginxFpmLauncher extends Launcher
         );
     }
 
-    function start()
+    public function start()
     {
         // Create server directories
         $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
@@ -323,7 +400,7 @@ class NginxFpmLauncher extends Launcher
         }
     }
 
-    function stop()
+    public function stop()
     {
         // Stop nginx
         if (file_exists(__DIR__ . '/run/nginx.pid')) {
@@ -342,11 +419,12 @@ class NginxFpmLauncher extends Launcher
 }
 
 // Use the specified PHP version
-// putenv('PATH=/usr/local/Cellar/php53/5.3.28/bin:/usr/local/Cellar/php53/5.3.28/sbin:' . getenv('PATH'));
+putenv('PATH=usr/bin:/usr/sbin:' . getenv('PATH'));
 
 // Create launcher
-$launcher = new ApacheFpmLauncher();
-$launcher->set('document_root', realpath(__DIR__ . '/../public_html'));
+$launcher = new ApacheLauncher();
+// $launcher->debug = true;
+$launcher->set('document_root', realpath(__DIR__ . '/public'));
 
 // Check whether this file is executed or included
 $includes = get_included_files();
