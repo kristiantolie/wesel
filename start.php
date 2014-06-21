@@ -10,18 +10,18 @@ abstract class Launcher
     public function get($variable)
     {
         if (!$variable) {
-            die('Variable is required.');
+            die('Variable is required.' . PHP_EOL);
         }
-        if (isset($this->variables[$variable])) {
-            return $this->variables[$variable];
+        if (!isset($this->variables[$variable])) {
+            die('Variable ' . $variable . ' not found.' . PHP_EOL);
         }
-        return false;
+        return $this->variables[$variable];
     }
 
     public function set($variable, $value)
     {
         if (!$variable) {
-            die('Variable is required.');
+            die('Variable is required.' . PHP_EOL);
         }
         $this->variables[$variable] = $value;
     }
@@ -36,25 +36,24 @@ abstract class Launcher
         $this->set($variable, $value);
     }
 
-    public function save($filename, $content)
+    public function save($file, $content)
     {
-        if (!$filename) {
-            die('Filename is required.');
+        if (!$file) {
+            die('File is required.' . PHP_EOL);
         }
-        file_put_contents($filename, $content);
+        file_put_contents($file, $content);
     }
 
-    public function parse($filename)
+    public function parse($config)
     {
-        if (!$filename) {
-            die('Filename is required.');
+        if (!$config) {
+            die('Config file is required.' . PHP_EOL);
         }
-        $content = file_get_contents($filename);
+        $content = file_get_contents($config);
         if (!$content) {
-            return false;
+            die('Config file ' . $config . ' is empty.' . PHP_EOL);
         }
-        $result = preg_replace_callback('/\{(.*?)\}/', array($this, 'replace'), $content);
-        return $result;
+        return preg_replace_callback('/\{\{(.*?)\}\}/', array($this, 'replace'), $content);
     }
 
     private function replace($matches)
@@ -65,7 +64,7 @@ abstract class Launcher
     public function execute($command, $verbose = false)
     {
         if (!$command) {
-            die('Command is required.');
+            die('Command is required.' . PHP_EOL);
         }
         $output = trim(shell_exec($command));
         if ($this->debug && $verbose) {
@@ -80,9 +79,12 @@ abstract class Launcher
     public function invoke($command, $verbose = false)
     {
         if (!$command) {
-            die('Command is required.');
+            die('Command is required.' . PHP_EOL);
         }
-        shell_exec($command . ' > /dev/null &');
+
+        // Execute in background and suppress the output
+        shell_exec($command . ' > /dev/null 2>&1 &');
+
         if ($this->debug && $verbose) {
             echo $command . PHP_EOL;
         }
@@ -91,24 +93,98 @@ abstract class Launcher
     public function isRunning($process)
     {
         if (!$process) {
-            die('Process is required.');
+            die('Process is required.' . PHP_EOL);
         }
         $output = $this->execute('ps aux | grep ' . $process . ' | grep -v grep');
         return !empty($output);
     }
+}
 
-    public function mkdirs($parent, $dirs = array())
+
+class NginxLauncher extends Launcher
+{
+    public function __construct()
     {
-        if (!$parent) {
-            die('Parent is required.');
+        $this->variables = array(
+            'current_dir'   => realpath(__DIR__),
+            'document_root' => realpath(__DIR__),
+            'config_dir'    => '/usr/local/etc/nginx/conf',
+        );
+    }
+
+    public function start()
+    {
+        $content = $this->parse(__DIR__ . '/nginx.conf');
+        $this->save(__DIR__ . '/_nginx.conf', $content);
+
+        if (!$this->isRunning('nginx')) {
+            echo 'Starting web server...' . PHP_EOL;
+            $this->execute('nginx -c ' . __DIR__ . '/_nginx.conf', true);
+            echo 'Web server has started.' . PHP_EOL;
         }
-        if (!is_array($dirs)) {
-            $dirs = array();
+    }
+
+    public function stop()
+    {
+        if ($this->isRunning('nginx')) {
+            echo 'Stopping web server...' . PHP_EOL;
+            $this->execute('nginx -c ' . __DIR__ . '/_nginx.conf -s quit', true);
+            echo 'Web server has stopped.' . PHP_EOL;
         }
-        foreach ($dirs as $dir) {
-            if (!file_exists($parent . '/' . $dir)) {
-                mkdir($parent . '/' . $dir);
-            }
+    }
+}
+
+
+class NginxFpmLauncher extends NginxLauncher
+{
+    public function start()
+    {
+        parent::start();
+
+        $content = $this->parse(__DIR__ . '/php-fpm.conf');
+        $this->save(__DIR__ . '/_php-fpm.conf', $content);
+
+        if (!$this->isRunning('php-fpm')) {
+            echo 'Starting FastCGI server...' . PHP_EOL;
+            $this->execute('php-fpm -y ' . __DIR__ . '/_php-fpm.conf -c ' . __DIR__ . '/php.ini', true);
+            echo 'FastCGI server has started.' . PHP_EOL;
+        }
+    }
+
+    public function stop()
+    {
+        parent::stop();
+
+        if ($this->isRunning('php-fpm')) {
+            echo 'Stopping FastCGI server...' . PHP_EOL;
+            $this->execute('killall php-fpm', true);
+            echo 'FastCGI server has stopped.' . PHP_EOL;
+        }
+    }
+}
+
+
+class NginxPhpLauncher extends NginxLauncher
+{
+    public function start()
+    {
+        parent::start();
+
+        if (!$this->isRunning('php-cgi')) {
+            echo 'Starting FastCGI server...' . PHP_EOL;
+            $this->invoke('php-cgi -b 127.0.0.1:9000 -c ' . __DIR__ . '/php.ini', true);
+            echo 'FastCGI server has started.' . PHP_EOL;
+        }
+    }
+
+    public function stop()
+    {
+        parent::stop();
+
+        if ($this->isRunning('php-cgi')) {
+            echo 'Stopping FastCGI server...' . PHP_EOL;
+            $this->execute('killall php-cgi', true);
+            echo 'FastCGI server has stopped.' . PHP_EOL;
         }
     }
 }
@@ -121,310 +197,95 @@ class ApacheLauncher extends Launcher
         $this->variables = array(
             'current_dir'   => realpath(__DIR__),
             'document_root' => realpath(__DIR__),
-            'library_dir'   => '/usr/libexec/apache2',
             'config_dir'    => '/private/etc/apache2',
         );
     }
 
     public function start()
     {
-        // Create server directories
-        $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
-
-        // Parse config file and save to configuration directory
         $content = $this->parse(__DIR__ . '/httpd.conf');
-        $this->save(__DIR__ . '/conf/httpd.conf', $content);
+        $this->save(__DIR__ . '/_httpd.conf', $content);
 
-        // Run apache
-        if (!file_exists(__DIR__ . '/run/httpd.pid')) {
+        if (!$this->isRunning('httpd')) {
             echo 'Starting web server...' . PHP_EOL;
-            $this->execute('apachectl -f ' . __DIR__ . '/conf/httpd.conf', true);
+            $this->execute('apachectl -f ' . __DIR__ . '/_httpd.conf', true);
             echo 'Web server has started.' . PHP_EOL;
         }
     }
 
     public function stop()
     {
-        // Stop apache
-        if (file_exists(__DIR__ . '/run/httpd.pid')) {
+        if ($this->isRunning('httpd')) {
             echo 'Stopping web server...' . PHP_EOL;
-            $this->execute('apachectl -f ' . __DIR__ . '/conf/httpd.conf -k graceful-stop', true);
+            $this->execute('apachectl -f ' . __DIR__ . '/_httpd.conf -k stop', true);
             echo 'Web server has stopped.' . PHP_EOL;
         }
     }
 }
 
-class ApachePhpLauncher extends Launcher
-{
-    public function __construct()
-    {
-        $this->variables = array(
-            'current_dir'   => realpath(__DIR__),
-            'document_root' => realpath(__DIR__),
-            'library_dir'   => '/usr/libexec/apache2',
-            'config_dir'    => '/private/etc/apache2',
-        );
-    }
 
+class ApacheFpmLauncher extends ApacheLauncher
+{
     public function start()
     {
-        // Create server directories
-        $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
+        parent::start();
 
-        // Parse config file and save to configuration directory
-        $content = $this->parse(__DIR__ . '/httpd.conf');
-        $this->save(__DIR__ . '/conf/httpd.conf', $content);
-
-        // Run apache
-        if (!file_exists(__DIR__ . '/run/httpd.pid')) {
-            echo 'Starting web server...' . PHP_EOL;
-            $this->execute('apachectl -f ' . __DIR__ . '/conf/httpd.conf', true);
-            echo 'Web server has started.' . PHP_EOL;
-        }
-
-        // Run fastcgi
-        if (!$this->isRunning('php-cgi')) {
-            echo 'Starting fastcgi server...' . PHP_EOL;
-            $this->invoke('php-cgi -b 127.0.0.1:9000 -c ' . __DIR__ . '/php.ini', true);
-            echo 'Fastcgi server has started.' . PHP_EOL;
-        }
-    }
-
-    public function stop()
-    {
-        // Stop apache
-        if (file_exists(__DIR__ . '/run/httpd.pid')) {
-            echo 'Stopping web server...' . PHP_EOL;
-            $this->execute('apachectl -f ' . __DIR__ . '/conf/httpd.conf -k graceful-stop', true);
-            echo 'Web server has stopped.' . PHP_EOL;
-        }
-
-        // Stop fastcgi
-        if ($this->isRunning('php-cgi')) {
-            echo 'Stopping fastcgi server...' . PHP_EOL;
-            $this->execute('killall php-cgi', true);
-            echo 'Fastcgi server has stopped.' . PHP_EOL;
-        }
-    }
-}
-
-
-class ApacheFpmLauncher extends Launcher
-{
-    public function __construct()
-    {
-        $this->variables = array(
-            'current_dir'   => realpath(__DIR__),
-            'document_root' => realpath(__DIR__),
-            'library_dir'   => '/usr/libexec/apache2',
-            'config_dir'    => '/private/etc/apache2',
-        );
-    }
-
-    public function start()
-    {
-        // Create server directories
-        $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
-
-        // Parse apache config and save to configuration directory
-        $content = $this->parse(__DIR__ . '/httpd.conf');
-        $this->save(__DIR__ . '/conf/httpd.conf', $content);
-
-        // Run apache
-        if (!file_exists(__DIR__ . '/run/httpd.pid')) {
-            echo 'Starting web server...' . PHP_EOL;
-            $this->execute('apachectl -f ' . __DIR__ . '/conf/httpd.conf', true);
-            echo 'Web server has started.' . PHP_EOL;
-        }
-
-        // Parse php-fpm config and save to configuration directory
         $content = $this->parse(__DIR__ . '/php-fpm.conf');
-        $this->save(__DIR__ . '/conf/php-fpm.conf', $content);
+        $this->save(__DIR__ . '/_php-fpm.conf', $content);
 
-        // Run fastcgi
-        if (!file_exists(__DIR__ . '/run/php-fpm.pid')) {
-            echo 'Starting fastcgi server...' . PHP_EOL;
-            $this->execute('php-fpm -p ' . __DIR__ . ' -y ' . __DIR__ . '/conf/php-fpm.conf -c ' . __DIR__ . '/php.ini', true);
-            echo 'Fastcgi server has started.' . PHP_EOL;
+        if (!$this->isRunning('php-fpm')) {
+            echo 'Starting FastCGI server...' . PHP_EOL;
+            $this->execute('php-fpm -y ' . __DIR__ . '/_php-fpm.conf -c ' . __DIR__ . '/php.ini', true);
+            echo 'FastCGI server has started.' . PHP_EOL;
         }
     }
 
     public function stop()
     {
-        // Stop apache
-        if (file_exists(__DIR__ . '/run/httpd.pid')) {
-            echo 'Stopping web server...' . PHP_EOL;
-            $this->execute('apachectl -f ' . __DIR__ . '/conf/httpd.conf -k graceful-stop', true);
-            echo 'Web server has stopped.' . PHP_EOL;
-        }
+        parent::stop();
 
-        // Stop fastcgi
-        if (file_exists(__DIR__ . '/run/php-fpm.pid')) {
-            echo 'Stopping fastcgi server...' . PHP_EOL;
+        if ($this->isRunning('php-fpm')) {
+            echo 'Stopping FastCGI server...' . PHP_EOL;
             $this->execute('killall php-fpm', true);
-            echo 'Fastcgi server has stopped.' . PHP_EOL;
+            echo 'FastCGI server has stopped.' . PHP_EOL;
         }
     }
 }
 
 
-class NginxLauncher extends Launcher
+class ApachePhpLauncher extends ApacheLauncher
 {
-    public function __construct()
-    {
-        $this->variables = array(
-            'current_dir'   => realpath(__DIR__),
-            'document_root' => realpath(__DIR__),
-            'config_dir'   => '/usr/local/etc/nginx',
-        );
-    }
-
     public function start()
     {
-        // Create server directories
-        $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
+        parent::start();
 
-        // Parse config file and save to configuration directory
-        $content = $this->parse(__DIR__ . '/nginx.conf');
-        $this->save(__DIR__ . '/conf/nginx.conf', $content);
-
-        // Run nginx
-        if (!file_exists(__DIR__ . '/run/nginx.pid')) {
-            echo 'Starting web server...' . PHP_EOL;
-            $this->execute('nginx -p ' . __DIR__ . ' -c ' . __DIR__ . '/conf/nginx.conf', true);
-            echo 'Web server has started.' . PHP_EOL;
-        }
-    }
-
-    public function stop()
-    {
-        // Stop nginx
-        if (file_exists(__DIR__ . '/run/nginx.pid')) {
-            echo 'Stopping web server...' . PHP_EOL;
-            $this->execute('nginx -p ' . __DIR__ . ' -c ' . __DIR__ . '/conf/nginx.conf -s quit', true);
-            echo 'Web server has stopped.' . PHP_EOL;
-        }
-    }
-}
-
-class NginxPhpLauncher extends Launcher
-{
-    public function __construct()
-    {
-        $this->variables = array(
-            'current_dir'   => realpath(__DIR__),
-            'document_root' => realpath(__DIR__),
-            'config_dir'   => '/usr/local/etc/nginx',
-        );
-    }
-
-    public function start()
-    {
-        // Create server directories
-        $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
-
-        // Parse config file and save to configuration directory
-        $content = $this->parse(__DIR__ . '/nginx.conf');
-        $this->save(__DIR__ . '/conf/nginx.conf', $content);
-
-        // Run nginx
-        if (!file_exists(__DIR__ . '/run/nginx.pid')) {
-            echo 'Starting web server...' . PHP_EOL;
-            $this->execute('nginx -p ' . __DIR__ . ' -c ' . __DIR__ . '/conf/nginx.conf', true);
-            echo 'Web server has started.' . PHP_EOL;
-        }
-
-        // Run fastcgi
         if (!$this->isRunning('php-cgi')) {
-            echo 'Starting fastcgi server...' . PHP_EOL;
+            echo 'Starting FastCGI server...' . PHP_EOL;
             $this->invoke('php-cgi -b 127.0.0.1:9000 -c ' . __DIR__ . '/php.ini', true);
-            echo 'Fastcgi server has started.' . PHP_EOL;
+            echo 'FastCGI server has started.' . PHP_EOL;
         }
     }
 
     public function stop()
     {
-        // Stop nginx
-        if (file_exists(__DIR__ . '/run/nginx.pid')) {
-            echo 'Stopping web server...' . PHP_EOL;
-            $this->execute('nginx -p ' . __DIR__ . ' -c ' . __DIR__ . '/conf/nginx.conf -s quit', true);
-            echo 'Web server has stopped.' . PHP_EOL;
-        }
+        parent::stop();
 
-        // Stop fastcgi
         if ($this->isRunning('php-cgi')) {
-            echo 'Stopping fastcgi server...' . PHP_EOL;
+            echo 'Stopping FastCGI server...' . PHP_EOL;
             $this->execute('killall php-cgi', true);
-            echo 'Fastcgi server has stopped.' . PHP_EOL;
+            echo 'FastCGI server has stopped.' . PHP_EOL;
         }
     }
 }
 
 
-class NginxFpmLauncher extends Launcher
-{
-    public function __construct()
-    {
-        $this->variables = array(
-            'current_dir'   => realpath(__DIR__),
-            'document_root' => realpath(__DIR__),
-            'config_dir'   => '/usr/local/etc/nginx',
-        );
-    }
-
-    public function start()
-    {
-        // Create server directories
-        $this->mkdirs(__DIR__, array('conf', 'run', 'temp', 'logs'));
-
-        // Parse nginx config and save to configuration directory
-        $content = $this->parse(__DIR__ . '/nginx.conf');
-        $this->save(__DIR__ . '/conf/nginx.conf', $content);
-
-        // Run nginx
-        if (!file_exists(__DIR__ . '/run/nginx.pid')) {
-            echo 'Starting web server...' . PHP_EOL;
-            $this->execute('nginx -p ' . __DIR__ . ' -c ' . __DIR__ . '/conf/nginx.conf', true);
-            echo 'Web server has started.' . PHP_EOL;
-        }
-
-        // Parse php-fpm config and save to configuration directory
-        $content = $this->parse(__DIR__ . '/php-fpm.conf');
-        $this->save(__DIR__ . '/conf/php-fpm.conf', $content);
-
-        // Run fastcgi
-        if (!file_exists(__DIR__ . '/run/php-fpm.pid')) {
-            echo 'Starting fastcgi server...' . PHP_EOL;
-            $this->execute('php-fpm -p ' . __DIR__ . ' -y ' . __DIR__ . '/conf/php-fpm.conf -c ' . __DIR__ . '/php.ini', true);
-            echo 'Fastcgi server has started.' . PHP_EOL;
-        }
-    }
-
-    public function stop()
-    {
-        // Stop nginx
-        if (file_exists(__DIR__ . '/run/nginx.pid')) {
-            echo 'Stopping web server...' . PHP_EOL;
-            $this->execute('nginx -p ' . __DIR__ . ' -c ' . __DIR__ . '/conf/nginx.conf -s quit', true);
-            echo 'Web server has stopped.' . PHP_EOL;
-        }
-
-        // Stop fastcgi
-        if (file_exists(__DIR__ . '/run/php-fpm.pid')) {
-            echo 'Stopping fastcgi server...' . PHP_EOL;
-            $this->execute('killall php-fpm', true);
-            echo 'Fastcgi server has stopped.' . PHP_EOL;
-        }
-    }
-}
-
-// Use the specified PHP version
-putenv('PATH=usr/bin:/usr/sbin:' . getenv('PATH'));
-
-// Create launcher
+// Create server launcher
 $launcher = new ApacheLauncher();
 // $launcher->debug = true;
 $launcher->set('document_root', realpath(__DIR__ . '/public'));
+
+// Setup environment variables
+putenv('PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin');
 
 // Check whether this file is executed or included
 $includes = get_included_files();
@@ -434,7 +295,8 @@ if ($includes[0] == __FILE__) {
 
 // Create stop file
 if (!file_exists(__DIR__ . '/stop.php')) {
-    $content = "#!/usr/bin/env php\n<?php\nob_start();\ninclude __DIR__ . '/start.php';\nob_end_clean();\n\$launcher->stop();\n";
+    $content = "#!/usr/bin/env php\n<?php\nob_start();\ninclude __DIR__ . '/start.php';\n" .
+               "ob_end_clean();\n\$launcher->stop();\n";
     file_put_contents(__DIR__ . '/stop.php', $content);
     chmod(__DIR__ . '/stop.php', 0755);
 }
