@@ -19,21 +19,21 @@ Wesel is a utility script to launch web server anywhere on developer machine.
 1. Edit start.php and set document_root at the bottom of the file to your
     web server documents directory.
 
-    // Create launcher
-    $launcher = new NginxPhpLauncher();
+    Create launcher
+    `$launcher = new NginxPhpLauncher();`
 
-    // Set to your web server documents directory
-    $launcher->set('document_root', realpath(__DIR__ . '/public'));
+    Set to your web server documents directory
+    `$launcher->set('document_root', realpath(__DIR__ . '/public'));`
 
 2. Open terminal and execute start.php.
 
-    #./start.php
+    `start.php`
 
 3. Open web browser and go to localhost:8080 to see if it works.
 
 4. Execute the generated stop.php to stop the server.
 
-    #./stop.php
+    `stop.php`
 
 
 ## Bugs and feature requests
